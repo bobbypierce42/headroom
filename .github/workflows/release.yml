@@ -76,7 +76,7 @@ concurrency:
 
 jobs:
   detect-version:
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     permissions:
       contents: read
     outputs:
@@ -87,6 +87,11 @@ jobs:
       bump: ${{ steps.ver.outputs.bump }}
       previous_tag: ${{ steps.ver.outputs.previous_tag }}
     steps:
+      - name: Set up Python for runner scripts
+        if: runner.os == 'Linux' && runner.environment == 'self-hosted'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -125,7 +130,7 @@ jobs:
   # built per-platform in `build-wheels` below. publish-pypi merges them.
   build:
     needs: [detect-version]
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     permissions:
       contents: read
     steps:
@@ -262,13 +267,41 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             manylinux: ""
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-24.04' && 'kalana-ci' || matrix.os == 'macos-14' && 'kalana-macos-ci' || matrix.os }}
     steps:
+      - name: Limit self-hosted compilation parallelism
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |-
+          echo "CARGO_BUILD_JOBS=2" >> "$GITHUB_ENV"
+          echo "RUST_TEST_THREADS=2" >> "$GITHUB_ENV"
+      - name: Prepare a private home for the Mac job
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        shell: bash
+        run: |-
+          mkdir -p "$RUNNER_TEMP/ci-home"
+          echo "HOME=$RUNNER_TEMP/ci-home" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
+      - name: Set up job-local Python on the Mac runner
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          version: 0.13.0
+          python-version: '3.11'
+          activate-environment: true
+          venv-path: ${{ runner.temp }}/ci-python
+          no-project: true
+          enable-cache: true
+          cache-python: true
+      - name: Provide pip in the Mac Python environment
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        shell: bash
+        run: uv pip install --python "$VIRTUAL_ENV/bin/python" pip
       - name: Set up Python
+        if: runner.os != 'macOS' || runner.environment != 'self-hosted'
         uses: actions/setup-python@v7
         with:
           python-version: "3.11"
@@ -282,11 +315,22 @@ jobs:
         run: |
           python scripts/verify-versions.py
 
+      - name: Install Rust for native Mac wheels
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: 1.95.0
+      - name: Install every declared Mac wheel interpreter
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        shell: bash
+        run: |-
+          uv python install 3.10 3.11 3.12 3.13
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist --interpreter python3.10 python3.11 python3.12 python3.13
+          args: "--release --out dist --interpreter python3.10 python3.11 python3.12 python3.13 ${{ runner.environment == 'self-hosted' && '--jobs 2' || '' }}"
           manylinux: ${{ matrix.manylinux }}
           # No before-script-linux needed: the rustls-everywhere refactor
           # (PR #371) switched fastembed to `hf-hub-rustls-tls` +
@@ -405,7 +449,7 @@ jobs:
   # into the canonical `dist/` directory for downstream publishing jobs.
   collect-dist:
     needs: [build, build-wheels]
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     permissions:
       contents: read
     steps:
@@ -466,7 +510,7 @@ jobs:
   smoke-import-wheels:
     needs: [build-wheels]
     if: github.event.inputs.dry_run != 'true'
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner == 'ubuntu-24.04' && 'kalana-ci' || matrix.runner == 'macos-14' && 'kalana-macos-ci' || matrix.runner }}
     permissions:
       contents: read
     strategy:
@@ -511,6 +555,27 @@ jobs:
           - { runner: windows-latest, image: "", python: "3.12", wheel_target: x86_64-pc-windows-msvc, wheel_artifact: wheels-windows-latest-x86_64-pc-windows-msvc, glibc_label: "" }
 
     steps:
+      - name: Prepare a private home for the Mac job
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        shell: bash
+        run: |-
+          mkdir -p "$RUNNER_TEMP/ci-home"
+          echo "HOME=$RUNNER_TEMP/ci-home" >> "$GITHUB_ENV"
+      - name: Set up job-local Python on the Mac runner
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          version: 0.13.0
+          python-version: ${{ matrix.python }}
+          activate-environment: true
+          venv-path: ${{ runner.temp }}/ci-python
+          no-project: true
+          enable-cache: true
+          cache-python: true
+      - name: Provide pip in the Mac Python environment
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        shell: bash
+        run: uv pip install --python "$VIRTUAL_ENV/bin/python" pip
       - name: Download wheels artifact for this target
         uses: actions/download-artifact@v8
         with:
@@ -712,14 +777,13 @@ jobs:
           fi
           echo "Installing: $whl"
 
-          # Use the system python at the requested minor version. The
-          # macos-14 runner image preinstalls multiple Python versions.
-          "python$PYTHON_VERSION" -m venv /tmp/venv
-          /tmp/venv/bin/pip install --quiet --upgrade pip
-          /tmp/venv/bin/pip install --quiet "$whl"
+          # Use the explicitly provisioned Python at the requested minor version.
+          "python$PYTHON_VERSION" -m venv "$RUNNER_TEMP/wheel-smoke"
+          "$RUNNER_TEMP/wheel-smoke"/bin/pip install --quiet --upgrade pip
+          "$RUNNER_TEMP/wheel-smoke"/bin/pip install --quiet "$whl"
           # Same staged smoke script as the Linux container path uses,
           # invoked directly on the macOS host (no docker mount needed).
-          /tmp/venv/bin/python "${RUNNER_TEMP}/smoke_import.py"
+          "$RUNNER_TEMP/wheel-smoke"/bin/python "${RUNNER_TEMP}/smoke_import.py"
 
       - name: Smoke-import wheel on Windows host
         if: matrix.image == '' && runner.os == 'Windows'
@@ -767,7 +831,7 @@ jobs:
     # dry_run, vars-level skip).
     if: github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true' && vars.PYPI_SKIP != 'true'
     environment: pypi  # NOTE: environment name must be a literal; update here if the GitHub environment name changes
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     permissions:
       id-token: write  # Required for OIDC trusted publishing
     steps:
@@ -794,7 +858,7 @@ jobs:
   publish-npm:
     needs: [detect-version, build]
     if: github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true' && vars.NPM_SKIP != 'true'
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     # Publishes to npmjs.org via NPM_TOKEN secret; no GITHUB_TOKEN
     # write permissions needed.
     permissions:
@@ -881,7 +945,7 @@ jobs:
   publish-github-packages:
     needs: [detect-version, build]
     if: github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true' && vars.GH_PACKAGES_SKIP != 'true'
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     permissions:
       contents: read
       packages: write
@@ -1014,10 +1078,16 @@ jobs:
         needs.smoke-import-wheels.result == 'success' &&
         (vars.PYPI_SKIP == 'true' || needs.publish-pypi.result == 'success')
       }}
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     permissions:
       contents: write
     steps:
+      - name: Install runner command-line dependencies
+        if: runner.os == 'Linux' && runner.environment == 'self-hosted'
+        shell: bash
+        run: |-
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gh
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0

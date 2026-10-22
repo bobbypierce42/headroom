@@ -34,7 +34,7 @@ on:
 
 jobs:
   init-native:
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'kalana-ci' || matrix.os == 'macos-latest' && 'kalana-macos-ci' || matrix.os }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -55,6 +55,18 @@ jobs:
           - target: openclaw
 
     steps:
+      - name: Limit self-hosted compilation parallelism
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |-
+          echo "CARGO_BUILD_JOBS=2" >> "$GITHUB_ENV"
+          echo "RUST_TEST_THREADS=2" >> "$GITHUB_ENV"
+      - name: Prepare a private home for the Mac job
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        shell: bash
+        run: |-
+          mkdir -p "$RUNNER_TEMP/ci-home"
+          echo "HOME=$RUNNER_TEMP/ci-home" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
 
       - name: Setup (shim=${{ matrix.target }})

@@ -22,9 +22,20 @@ concurrency:
 jobs:
   template:
     if: github.event_name == 'pull_request_target'
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     timeout-minutes: 10
     steps:
+      - name: Install runner command-line dependencies
+        if: runner.os == 'Linux' && runner.environment == 'self-hosted'
+        shell: bash
+        run: |-
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gh
+      - name: Set up Python for runner scripts
+        if: runner.os == 'Linux' && runner.environment == 'self-hosted'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}
@@ -145,12 +156,18 @@ jobs:
           echo "PR template validation found missing fields. The governance comment and labels identify the required author updates."
 
   label:
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     timeout-minutes: 10
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       REPO: ${{ github.repository }}
     steps:
+      - name: Install runner command-line dependencies
+        if: runner.os == 'Linux' && runner.environment == 'self-hosted'
+        shell: bash
+        run: |-
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gh
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}

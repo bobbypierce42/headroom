@@ -47,7 +47,7 @@ concurrency:
 
 jobs:
   sync:
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     timeout-minutes: 10
     steps:
       # Prefer a short-lived, repo-scoped GitHub App installation token over a

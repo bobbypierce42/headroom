@@ -16,9 +16,15 @@ concurrency:
 
 jobs:
   stale:
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     timeout-minutes: 15
     steps:
+      - name: Install runner command-line dependencies
+        if: runner.os == 'Linux' && runner.environment == 'self-hosted'
+        shell: bash
+        run: |-
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gh
       - name: Ensure stale label exists
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

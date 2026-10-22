@@ -221,7 +221,7 @@ jobs:
   docker-manifest:
     needs: docker-build
     if: ${{ always() }}
-    runs-on: ubuntu-24.04
+    runs-on: kalana-ci
     timeout-minutes: 20
     strategy:
       fail-fast: false

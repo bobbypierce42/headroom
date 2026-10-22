@@ -36,7 +36,7 @@ jobs:
   # `changes` check.
   rust-changes:
     name: rust-changes
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     timeout-minutes: 5
     outputs:
       rust: ${{ steps.decide.outputs.rust }}
@@ -149,13 +149,25 @@ jobs:
     name: simulator e2e (${{ matrix.os }})
     needs: rust-changes
     if: needs.rust-changes.outputs.rust == 'true'
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'kalana-ci' || matrix.os == 'macos-latest' && 'kalana-macos-ci' || matrix.os }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
+      - name: Limit self-hosted compilation parallelism
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |-
+          echo "CARGO_BUILD_JOBS=2" >> "$GITHUB_ENV"
+          echo "RUST_TEST_THREADS=2" >> "$GITHUB_ENV"
+      - name: Prepare a private home for the Mac job
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        shell: bash
+        run: |-
+          mkdir -p "$RUNNER_TEMP/ci-home"
+          echo "HOME=$RUNNER_TEMP/ci-home" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -170,7 +182,7 @@ jobs:
     name: wheels (${{ matrix.target }})
     needs: rust-changes
     if: needs.rust-changes.outputs.rust == 'true'
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'kalana-ci' || matrix.os == 'macos-14' && 'kalana-macos-ci' || matrix.os }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -188,10 +200,43 @@ jobs:
         # Intel macOS uses `ort-load-dynamic` (no prebuilt ORT from ort-sys);
         # Apple Silicon bundles ORT via `ort-download-binaries-rustls-tls`.
     steps:
+      - name: Limit self-hosted compilation parallelism
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |-
+          echo "CARGO_BUILD_JOBS=2" >> "$GITHUB_ENV"
+          echo "RUST_TEST_THREADS=2" >> "$GITHUB_ENV"
+      - name: Prepare a private home for the Mac job
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        shell: bash
+        run: |-
+          mkdir -p "$RUNNER_TEMP/ci-home"
+          echo "HOME=$RUNNER_TEMP/ci-home" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
+      - name: Set up job-local Python on the Mac runner
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          version: 0.13.0
+          python-version: '3.11'
+          activate-environment: true
+          venv-path: ${{ runner.temp }}/ci-python
+          no-project: true
+          enable-cache: true
+          cache-python: true
+      - name: Provide pip in the Mac Python environment
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        shell: bash
+        run: uv pip install --python "$VIRTUAL_ENV/bin/python" pip
       - uses: actions/setup-python@v7
+        if: runner.os != 'macOS' || runner.environment != 'self-hosted'
         with:
           python-version: '3.11'
+      - name: Install Rust for native Mac wheels
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: 1.95.0
       - name: "Build wheel (single-wheel architecture builds headroom-ai)"
         uses: PyO3/maturin-action@v1
         # Maturin reads `[tool.maturin]` from the root `pyproject.toml`
@@ -200,7 +245,7 @@ jobs:
         # both Python source and the compiled `headroom/_core.so`.
         with:
           command: build
-          args: --release --out dist
+          args: "--release --out dist ${{ runner.environment == 'self-hosted' && '--jobs 2' || '' }}"
           target: ${{ matrix.maturin-target }}
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v7
@@ -212,9 +257,15 @@ jobs:
     name: audit
     needs: rust-changes
     if: needs.rust-changes.outputs.rust == 'true'
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     timeout-minutes: 20
     steps:
+      - name: Limit self-hosted compilation parallelism
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |-
+          echo "CARGO_BUILD_JOBS=2" >> "$GITHUB_ENV"
+          echo "RUST_TEST_THREADS=2" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -249,8 +300,14 @@ jobs:
     name: parity
     needs: rust-changes
     if: needs.rust-changes.outputs.rust == 'true'
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     steps:
+      - name: Limit self-hosted compilation parallelism
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |-
+          echo "CARGO_BUILD_JOBS=2" >> "$GITHUB_ENV"
+          echo "RUST_TEST_THREADS=2" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:

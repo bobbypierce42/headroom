@@ -30,7 +30,7 @@ jobs:
   # installed in production), so this gate fails only on actionable findings.
   dependency-audit:
     name: Dependency audit (pip-audit)
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -59,7 +59,7 @@ jobs:
   # Lockfile audits do not install packages or execute their lifecycle scripts.
   npm-audit:
     name: npm audit (${{ matrix.directory }})
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -114,7 +114,7 @@ jobs:
   # live in .gitleaks.toml at the repo root (auto-loaded).
   secret-scan:
     name: Secret scan (gitleaks)
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7

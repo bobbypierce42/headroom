@@ -25,12 +25,29 @@ jobs:
     runs-on: kalana-ci
     timeout-minutes: 10
     steps:
-      - name: Install runner command-line dependencies
+      - name: Set up GitHub CLI without root privileges
         if: runner.os == 'Linux' && runner.environment == 'self-hosted'
         shell: bash
-        run: |-
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gh
+        run: |
+          set -euo pipefail
+          if command -v gh >/dev/null 2>&1; then
+            gh --version
+            exit 0
+          fi
+          case "$(uname -m)" in
+            x86_64) cli_arch=amd64 ;;
+            aarch64|arm64) cli_arch=arm64 ;;
+            *) echo "::error::Unsupported GitHub CLI architecture"; exit 1 ;;
+          esac
+          cli_version=2.103.0
+          cli_package="gh_${cli_version}_linux_${cli_arch}.tar.gz"
+          cli_dir="$(mktemp -d "$RUNNER_TEMP/gh-cli.XXXXXX")"
+          cli_url="https://github.com/cli/cli/releases/download/v${cli_version}"
+          curl -fsSL --retry 3 "$cli_url/$cli_package" -o "$cli_dir/$cli_package"
+          curl -fsSL --retry 3 "$cli_url/gh_${cli_version}_checksums.txt" -o "$cli_dir/checksums.txt"
+          (cd "$cli_dir" && sha256sum --check --ignore-missing checksums.txt)
+          tar -xzf "$cli_dir/$cli_package" -C "$cli_dir"
+          echo "$cli_dir/gh_${cli_version}_linux_${cli_arch}/bin" >> "$GITHUB_PATH"
       - name: Set up Python for runner scripts
         if: runner.os == 'Linux' && runner.environment == 'self-hosted'
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
@@ -162,12 +179,29 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       REPO: ${{ github.repository }}
     steps:
-      - name: Install runner command-line dependencies
+      - name: Set up GitHub CLI without root privileges
         if: runner.os == 'Linux' && runner.environment == 'self-hosted'
         shell: bash
-        run: |-
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gh
+        run: |
+          set -euo pipefail
+          if command -v gh >/dev/null 2>&1; then
+            gh --version
+            exit 0
+          fi
+          case "$(uname -m)" in
+            x86_64) cli_arch=amd64 ;;
+            aarch64|arm64) cli_arch=arm64 ;;
+            *) echo "::error::Unsupported GitHub CLI architecture"; exit 1 ;;
+          esac
+          cli_version=2.103.0
+          cli_package="gh_${cli_version}_linux_${cli_arch}.tar.gz"
+          cli_dir="$(mktemp -d "$RUNNER_TEMP/gh-cli.XXXXXX")"
+          cli_url="https://github.com/cli/cli/releases/download/v${cli_version}"
+          curl -fsSL --retry 3 "$cli_url/$cli_package" -o "$cli_dir/$cli_package"
+          curl -fsSL --retry 3 "$cli_url/gh_${cli_version}_checksums.txt" -o "$cli_dir/checksums.txt"
+          (cd "$cli_dir" && sha256sum --check --ignore-missing checksums.txt)
+          tar -xzf "$cli_dir/$cli_package" -C "$cli_dir"
+          echo "$cli_dir/gh_${cli_version}_linux_${cli_arch}/bin" >> "$GITHUB_PATH"
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}

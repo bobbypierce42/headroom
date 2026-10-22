@@ -19,18 +19,39 @@ permissions:
   contents: read
   pull-requests: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   no-manual-changelog:
     # release-please's release PR is the sole author of CHANGELOG.md.
-    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (!startsWith(github.head_ref, 'release-please--')) }}
     runs-on: kalana-ci
+    timeout-minutes: 30
     steps:
-      - name: Install runner command-line dependencies
+      - name: Set up GitHub CLI without root privileges
         if: runner.os == 'Linux' && runner.environment == 'self-hosted'
         shell: bash
-        run: |-
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gh
+        run: |
+          set -euo pipefail
+          if command -v gh >/dev/null 2>&1; then
+            gh --version
+            exit 0
+          fi
+          case "$(uname -m)" in
+            x86_64) cli_arch=amd64 ;;
+            aarch64|arm64) cli_arch=arm64 ;;
+            *) echo "::error::Unsupported GitHub CLI architecture"; exit 1 ;;
+          esac
+          cli_version=2.103.0
+          cli_package="gh_${cli_version}_linux_${cli_arch}.tar.gz"
+          cli_dir="$(mktemp -d "$RUNNER_TEMP/gh-cli.XXXXXX")"
+          cli_url="https://github.com/cli/cli/releases/download/v${cli_version}"
+          curl -fsSL --retry 3 "$cli_url/$cli_package" -o "$cli_dir/$cli_package"
+          curl -fsSL --retry 3 "$cli_url/gh_${cli_version}_checksums.txt" -o "$cli_dir/checksums.txt"
+          (cd "$cli_dir" && sha256sum --check --ignore-missing checksums.txt)
+          tar -xzf "$cli_dir/$cli_package" -C "$cli_dir"
+          echo "$cli_dir/gh_${cli_version}_linux_${cli_arch}/bin" >> "$GITHUB_PATH"
       - name: Reject manual CHANGELOG.md edits
         env:
           GH_TOKEN: ${{ github.token }}

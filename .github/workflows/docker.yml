@@ -40,36 +40,31 @@ permissions:
 
 jobs:
   # ─── Per-arch fan-out ──────────────────────────────────────────────────────
-  # Build each variant on its native architecture in parallel:
-  #   linux/amd64 → ubuntu-24.04 (native x86_64)
-  #   linux/arm64 → ubuntu-24.04-arm (native aarch64, GA Jan 2025)
-  #
-  # Pre-#377 we ran a single matrix job per variant on `ubuntu-latest` and
-  # let bake's `platforms = ["linux/amd64", "linux/arm64"]` do multi-arch
-  # via QEMU emulation — ~1h per variant. Native arm64 runners drop QEMU
-  # entirely and cut each variant to ~10 min on each arch in parallel.
+  # Build each variant for amd64 and arm64 on the kalana-ci runner family.
+  # QEMU supplies the non-native execution path for both Docker builds and
+  # image smoke tests. Per-architecture artifacts and manifests stay separate.
   #
   # Each per-arch build pushes by digest only (no tags). The
   # `docker-manifest` job below combines the per-arch digests into the
   # final multi-arch tagged manifest, which is what users pull by tag.
   docker-build:
-    runs-on: ${{ matrix.arch.runs_on }}
-    timeout-minutes: 75
+    runs-on: kalana-ci
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         variant:
-          - { name: "", bake_target: runtime }
-          - { name: nonroot, bake_target: runtime-nonroot }
-          - { name: code, bake_target: runtime-code }
-          - { name: code-nonroot, bake_target: runtime-code-nonroot }
-          - { name: slim, bake_target: runtime-slim }
-          - { name: slim-nonroot, bake_target: runtime-slim-nonroot }
-          - { name: code-slim, bake_target: runtime-code-slim }
-          - { name: code-slim-nonroot, bake_target: runtime-code-slim-nonroot }
+          - {name: "", bake_target: runtime}
+          - {name: nonroot, bake_target: runtime-nonroot}
+          - {name: code, bake_target: runtime-code}
+          - {name: code-nonroot, bake_target: runtime-code-nonroot}
+          - {name: slim, bake_target: runtime-slim}
+          - {name: slim-nonroot, bake_target: runtime-slim-nonroot}
+          - {name: code-slim, bake_target: runtime-code-slim}
+          - {name: code-slim-nonroot, bake_target: runtime-code-slim-nonroot}
         arch:
-          - { name: amd64, runs_on: ubuntu-24.04, platform: linux/amd64 }
-          - { name: arm64, runs_on: ubuntu-24.04-arm, platform: linux/arm64 }
+          - {name: amd64, platform: linux/amd64}
+          - {name: arm64, platform: linux/arm64}
 
     steps:
       - uses: actions/checkout@v7
@@ -103,6 +98,10 @@ jobs:
         run: |
           python scripts/version-sync.py --version ${{ steps.version.outputs.version }}
 
+      - name: Enable Linux architecture emulation
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64,amd64
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -227,14 +226,14 @@ jobs:
       fail-fast: false
       matrix:
         variant:
-          - { name: "", bake_target: runtime }
-          - { name: nonroot, bake_target: runtime-nonroot }
-          - { name: code, bake_target: runtime-code }
-          - { name: code-nonroot, bake_target: runtime-code-nonroot }
-          - { name: slim, bake_target: runtime-slim }
-          - { name: slim-nonroot, bake_target: runtime-slim-nonroot }
-          - { name: code-slim, bake_target: runtime-code-slim }
-          - { name: code-slim-nonroot, bake_target: runtime-code-slim-nonroot }
+          - {name: "", bake_target: runtime}
+          - {name: nonroot, bake_target: runtime-nonroot}
+          - {name: code, bake_target: runtime-code}
+          - {name: code-nonroot, bake_target: runtime-code-nonroot}
+          - {name: slim, bake_target: runtime-slim}
+          - {name: slim-nonroot, bake_target: runtime-slim-nonroot}
+          - {name: code-slim, bake_target: runtime-code-slim}
+          - {name: code-slim-nonroot, bake_target: runtime-code-slim-nonroot}
 
     steps:
       # No `actions/checkout` here: the manifest job only calls

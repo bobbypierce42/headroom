@@ -7,10 +7,16 @@ name: Publish to PyPI (manual fallback)
 # x86_64 wheel + sdist. For full cross-platform release, use release.yml.
 on:
   workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   publish:
     runs-on: kalana-ci
+    timeout-minutes: 30
     environment: pypi
     permissions:
       id-token: write  # For trusted publishing

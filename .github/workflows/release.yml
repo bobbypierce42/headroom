@@ -74,9 +74,13 @@ concurrency:
   group: release-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+permissions:
+  contents: read
 jobs:
   detect-version:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: kalana-ci
+    timeout-minutes: 90
     permissions:
       contents: read
     outputs:
@@ -130,7 +134,9 @@ jobs:
   # built per-platform in `build-wheels` below. publish-pypi merges them.
   build:
     needs: [detect-version]
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: kalana-ci
+    timeout-minutes: 90
     permissions:
       contents: read
     steps:
@@ -267,7 +273,9 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             manylinux: ""
-    runs-on: ${{ matrix.os == 'ubuntu-24.04' && 'kalana-ci' || matrix.os == 'macos-14' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'kalana-macos-ci') || matrix.os }}
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ startsWith(matrix.os, 'windows') && matrix.os || startsWith(matrix.os, 'macos') && fromJSON('["self-hosted","kalana-macos-ci","macOS"]') || fromJSON('["kalana-ci"]') }}
+    timeout-minutes: 180
     steps:
       - name: Limit self-hosted compilation parallelism
         if: runner.environment == 'self-hosted'
@@ -285,12 +293,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check Intel Mac execution support
+        if: runner.os == 'macOS' && matrix.os == 'macos-15-intel'
+        shell: bash
+        run: |
+          if ! arch -x86_64 /usr/bin/true; then
+            echo "::error::Preserved Intel Mac artifacts require Rosetta 2 on Apple Silicon."
+            exit 1
+          fi
       - name: Set up job-local Python on the Mac runner
         if: runner.os == 'macOS' && runner.environment == 'self-hosted'
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
           version: 0.13.0
-          python-version: '3.11'
+          python-version: '${{ matrix.os == ''macos-15-intel'' && format(''cpython-{0}-macos-x86_64-none'', ''3.11'') || ''3.11'' }}'
           activate-environment: true
           venv-path: ${{ runner.temp }}/ci-python
           no-project: true
@@ -323,9 +339,23 @@ jobs:
       - name: Install every declared Mac wheel interpreter
         if: runner.os == 'macOS' && runner.environment == 'self-hosted'
         shell: bash
-        run: |-
-          uv python install 3.10 3.11 3.12 3.13
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        run: |
+          interpreter_dir="$RUNNER_TEMP/wheel-interpreters/bin"
+          mkdir -p "$interpreter_dir"
+          for python_version in 3.10 3.11 3.12 3.13; do
+            request="cpython-${python_version}-macos-${WHEEL_ARCH}-none"
+            uv python install "$request"
+            interpreter="$(uv python find "$request")"
+            ln -sf "$interpreter" "$interpreter_dir/python${python_version}"
+          done
+          echo "$interpreter_dir" >> "$GITHUB_PATH"
+        env:
+          WHEEL_ARCH: ${{ matrix.os == 'macos-15-intel' && 'x86_64' || 'aarch64' }}
+      - name: Enable Linux architecture emulation
+        uses: docker/setup-qemu-action@v3
+        with: &id001
+          platforms: arm64,amd64
+        if: runner.os == 'Linux'
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -449,7 +479,9 @@ jobs:
   # into the canonical `dist/` directory for downstream publishing jobs.
   collect-dist:
     needs: [build, build-wheels]
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: kalana-ci
+    timeout-minutes: 90
     permissions:
       contents: read
     steps:
@@ -509,8 +541,9 @@ jobs:
   # dlopen RPATH issues, missing transitive native deps).
   smoke-import-wheels:
     needs: [build-wheels]
-    if: github.event.inputs.dry_run != 'true'
-    runs-on: ${{ matrix.runner == 'ubuntu-24.04' && 'kalana-ci' || matrix.runner == 'macos-14' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'kalana-macos-ci') || matrix.runner }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event.inputs.dry_run != 'true') }}
+    runs-on: ${{ startsWith(matrix.runner, 'windows') && matrix.runner || startsWith(matrix.runner, 'macos') && fromJSON('["self-hosted","kalana-macos-ci","macOS"]') || fromJSON('["kalana-ci"]') }}
+    timeout-minutes: 90
     permissions:
       contents: read
     strategy:
@@ -535,24 +568,24 @@ jobs:
           # owning. Manylinux 2.28 (glibc 2.28) is still the floor
           # we promise; ubuntu:22.04 covers the most-reported
           # customer environment.
-          - { runner: ubuntu-24.04, image: "quay.io/pypa/manylinux_2_28_x86_64", python: "3.11", wheel_target: x86_64-unknown-linux-gnu, wheel_artifact: wheels-ubuntu-24.04-x86_64-unknown-linux-gnu, glibc_label: "2.28-floor" }
-          - { runner: ubuntu-24.04, image: "ubuntu:22.04", python: "3.12", wheel_target: x86_64-unknown-linux-gnu, wheel_artifact: wheels-ubuntu-24.04-x86_64-unknown-linux-gnu, glibc_label: "2.35" }
+          - {runner: ubuntu-24.04, image: "quay.io/pypa/manylinux_2_28_x86_64", python: "3.11", wheel_target: x86_64-unknown-linux-gnu, wheel_artifact: wheels-ubuntu-24.04-x86_64-unknown-linux-gnu, glibc_label: "2.28-floor"}
+          - {runner: ubuntu-24.04, image: "ubuntu:22.04", python: "3.12", wheel_target: x86_64-unknown-linux-gnu, wheel_artifact: wheels-ubuntu-24.04-x86_64-unknown-linux-gnu, glibc_label: "2.35"}
           # Linux aarch64 — floor + one customer env. Native arm64
           # runners (PR #376) host the container.
-          - { runner: ubuntu-24.04-arm, image: "quay.io/pypa/manylinux_2_28_aarch64", python: "3.11", wheel_target: aarch64-unknown-linux-gnu, wheel_artifact: wheels-ubuntu-24.04-arm-aarch64-unknown-linux-gnu, glibc_label: "2.28-floor" }
-          - { runner: ubuntu-24.04-arm, image: "ubuntu:22.04", python: "3.12", wheel_target: aarch64-unknown-linux-gnu, wheel_artifact: wheels-ubuntu-24.04-arm-aarch64-unknown-linux-gnu, glibc_label: "2.35" }
+          - {runner: ubuntu-24.04-arm, image: "quay.io/pypa/manylinux_2_28_aarch64", python: "3.11", wheel_target: aarch64-unknown-linux-gnu, wheel_artifact: wheels-ubuntu-24.04-arm-aarch64-unknown-linux-gnu, glibc_label: "2.28-floor"}
+          - {runner: ubuntu-24.04-arm, image: "ubuntu:22.04", python: "3.12", wheel_target: aarch64-unknown-linux-gnu, wheel_artifact: wheels-ubuntu-24.04-arm-aarch64-unknown-linux-gnu, glibc_label: "2.35"}
           # macOS arm64 — runs natively on the host runner; no container.
-          - { runner: macos-14, image: "", python: "3.13", wheel_target: aarch64-apple-darwin, wheel_artifact: wheels-macos-14-aarch64-apple-darwin, glibc_label: "" }
+          - {runner: macos-14, image: "", python: "3.13", wheel_target: aarch64-apple-darwin, wheel_artifact: wheels-macos-14-aarch64-apple-darwin, glibc_label: ""}
           # macOS x86_64 (Intel) — `ort-load-dynamic`; see build-wheels
           # matrix comment for rationale.
-          - { runner: macos-15-intel, image: "", python: "3.12", wheel_target: x86_64-apple-darwin, wheel_artifact: wheels-macos-15-intel-x86_64-apple-darwin, glibc_label: "" }
+          - {runner: macos-15-intel, image: "", python: "3.12", wheel_target: x86_64-apple-darwin, wheel_artifact: wheels-macos-15-intel-x86_64-apple-darwin, glibc_label: ""}
           # Windows x86_64 — runs natively on the host runner; no
           # container. `image: ""` routes this row past the Linux docker
           # path; a dedicated PowerShell step below installs + imports the
           # wheel (venv layout differs: Scripts\ not bin/). This is the
           # gate that issue #1328's win_amd64 wheel must clear before
           # publish.
-          - { runner: windows-latest, image: "", python: "3.12", wheel_target: x86_64-pc-windows-msvc, wheel_artifact: wheels-windows-latest-x86_64-pc-windows-msvc, glibc_label: "" }
+          - {runner: windows-latest, image: "", python: "3.12", wheel_target: x86_64-pc-windows-msvc, wheel_artifact: wheels-windows-latest-x86_64-pc-windows-msvc, glibc_label: ""}
 
     steps:
       - name: Prepare a private home for the Mac job
@@ -561,12 +594,20 @@ jobs:
         run: |-
           mkdir -p "$RUNNER_TEMP/ci-home"
           echo "HOME=$RUNNER_TEMP/ci-home" >> "$GITHUB_ENV"
+      - name: Check Intel Mac execution support
+        if: runner.os == 'macOS' && matrix.runner == 'macos-15-intel'
+        shell: bash
+        run: |
+          if ! arch -x86_64 /usr/bin/true; then
+            echo "::error::Preserved Intel Mac artifacts require Rosetta 2 on Apple Silicon."
+            exit 1
+          fi
       - name: Set up job-local Python on the Mac runner
         if: runner.os == 'macOS' && runner.environment == 'self-hosted'
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
           version: 0.13.0
-          python-version: ${{ matrix.python }}
+          python-version: ${{ matrix.runner == 'macos-15-intel' && format('cpython-{0}-macos-x86_64-none', matrix.python) || matrix.python }}
           activate-environment: true
           venv-path: ${{ runner.temp }}/ci-python
           no-project: true
@@ -625,6 +666,10 @@ jobs:
           print(f"smoke-import OK: python={sys.version_info[:3]} hello={_rust_hello()}")
           PY
 
+      - name: Enable Linux architecture emulation
+        uses: docker/setup-qemu-action@v3
+        with: *id001
+        if: matrix.image != ''
       - name: Smoke-import wheel inside container (Linux)
         if: matrix.image != ''
         env:
@@ -632,13 +677,14 @@ jobs:
           PYTHON_VERSION: ${{ matrix.python }}
           WHEEL_TARGET: ${{ matrix.wheel_target }}
           GLIBC_LABEL: ${{ matrix.glibc_label }}
+          CONTAINER_PLATFORM: ${{ startsWith(matrix.wheel_target, 'aarch64-') && 'linux/arm64' || 'linux/amd64' }}
         run: |
           set -e
           # The container script intentionally avoids `<<EOF` heredoc
           # interpolation by passing values via env vars — keeps the
           # shell quoting straightforward and makes failure modes
           # easier to debug.
-          docker run --rm \
+          docker run --rm --platform "$CONTAINER_PLATFORM" \
             -v "$(pwd)/dist:/wheels:ro" \
             -v "${RUNNER_TEMP}/smoke_import.py:/smoke_import.py:ro" \
             -e PYTHON_VERSION="$PYTHON_VERSION" \
@@ -829,9 +875,10 @@ jobs:
     # X2: skip on pull_request — dry-run only verifies build+smoke,
     # never publishes. The other two predicates remain (workflow_dispatch
     # dry_run, vars-level skip).
-    if: github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true' && vars.PYPI_SKIP != 'true'
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true' && vars.PYPI_SKIP != 'true') }}
     environment: pypi  # NOTE: environment name must be a literal; update here if the GitHub environment name changes
     runs-on: kalana-ci
+    timeout-minutes: 90
     permissions:
       id-token: write  # Required for OIDC trusted publishing
     steps:
@@ -857,10 +904,11 @@ jobs:
 
   publish-npm:
     needs: [detect-version, build]
-    if: github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true' && vars.NPM_SKIP != 'true'
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true' && vars.NPM_SKIP != 'true') }}
     runs-on: kalana-ci
     # Publishes to npmjs.org via NPM_TOKEN secret; no GITHUB_TOKEN
     # write permissions needed.
+    timeout-minutes: 90
     permissions:
       contents: read
     steps:
@@ -944,8 +992,9 @@ jobs:
 
   publish-github-packages:
     needs: [detect-version, build]
-    if: github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true' && vars.GH_PACKAGES_SKIP != 'true'
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true' && vars.GH_PACKAGES_SKIP != 'true') }}
     runs-on: kalana-ci
+    timeout-minutes: 90
     permissions:
       contents: read
       packages: write
@@ -1067,8 +1116,7 @@ jobs:
   create-release:
     needs: [detect-version, build, build-wheels, collect-dist, smoke-import-wheels, publish-pypi, publish-npm, publish-github-packages, publish-docker]
     if: >-
-      ${{
-        always() &&
+      ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (always() &&
         github.event_name != 'pull_request' &&
         github.event.inputs.dry_run != 'true' &&
         needs.detect-version.result == 'success' &&
@@ -1076,18 +1124,35 @@ jobs:
         needs.build-wheels.result == 'success' &&
         needs.collect-dist.result == 'success' &&
         needs.smoke-import-wheels.result == 'success' &&
-        (vars.PYPI_SKIP == 'true' || needs.publish-pypi.result == 'success')
-      }}
+        (vars.PYPI_SKIP == 'true' || needs.publish-pypi.result == 'success')) }}
     runs-on: kalana-ci
+    timeout-minutes: 90
     permissions:
       contents: write
     steps:
-      - name: Install runner command-line dependencies
+      - name: Set up GitHub CLI without root privileges
         if: runner.os == 'Linux' && runner.environment == 'self-hosted'
         shell: bash
-        run: |-
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gh
+        run: |
+          set -euo pipefail
+          if command -v gh >/dev/null 2>&1; then
+            gh --version
+            exit 0
+          fi
+          case "$(uname -m)" in
+            x86_64) cli_arch=amd64 ;;
+            aarch64|arm64) cli_arch=arm64 ;;
+            *) echo "::error::Unsupported GitHub CLI architecture"; exit 1 ;;
+          esac
+          cli_version=2.103.0
+          cli_package="gh_${cli_version}_linux_${cli_arch}.tar.gz"
+          cli_dir="$(mktemp -d "$RUNNER_TEMP/gh-cli.XXXXXX")"
+          cli_url="https://github.com/cli/cli/releases/download/v${cli_version}"
+          curl -fsSL --retry 3 "$cli_url/$cli_package" -o "$cli_dir/$cli_package"
+          curl -fsSL --retry 3 "$cli_url/gh_${cli_version}_checksums.txt" -o "$cli_dir/checksums.txt"
+          (cd "$cli_dir" && sha256sum --check --ignore-missing checksums.txt)
+          tar -xzf "$cli_dir/$cli_package" -C "$cli_dir"
+          echo "$cli_dir/gh_${cli_version}_linux_${cli_arch}/bin" >> "$GITHUB_PATH"
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0

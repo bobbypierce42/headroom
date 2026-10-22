@@ -9,7 +9,7 @@ run_act() {
   local delay_seconds=5
 
   while true; do
-    if "$@"; then
+    if "$@" -P kalana-ci=ghcr.io/catthehacker/ubuntu:act-24.04; then
       return 0
     fi
 

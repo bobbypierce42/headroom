@@ -30,9 +30,12 @@ concurrency:
   group: wrap-e2e-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+permissions:
+  contents: read
 jobs:
   docker-wrap-e2e:
-    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: kalana-ci
     timeout-minutes: 45
 
     steps:

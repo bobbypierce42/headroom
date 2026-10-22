@@ -603,49 +603,31 @@ def test_aarch64_wheel_uses_native_arm64_runner() -> None:
     )
 
 
-def test_docker_workflow_builds_on_native_arch_runners() -> None:
-    """STRUCTURAL INVARIANT: the docker variant build must fan out per
-    arch onto native runners — `linux/amd64` on `ubuntu-24.04`,
-    `linux/arm64` on `ubuntu-24.04-arm`. No QEMU.
+def test_docker_workflow_preserves_both_architectures_on_kalana() -> None:
+    """Both published architectures must still build and execute their smoke test.
 
-    Pre-#377 each variant ran `docker bake` with
-    `platforms = ["linux/amd64","linux/arm64"]` on a single x64 runner
-    using QEMU for arm64 emulation — ~1h per variant. Splitting into
-    16 native single-arch builds (8 variants × 2 arches) + a manifest
-    merge job per variant cuts wall-clock to ~10 min and removes the
-    QEMU surface that contributed to transient build failures.
+    The self-hosted Linux family uses QEMU when the target differs from the
+    worker architecture. Digest-only fan-out and manifest publication remain
+    the release contract.
     """
     content = (ROOT / ".github" / "workflows" / "docker.yml").read_text(encoding="utf-8")
-
-    # The fan-out job must exist with both runners in its arch matrix.
-    assert "docker-build:" in content, "docker-build fan-out job missing"
-    assert "runs_on: ubuntu-24.04, platform: linux/amd64" in content, (
-        "amd64 arch matrix entry must bind ubuntu-24.04 (native x86_64)"
+    workflow = yaml.safe_load(content)
+    build = workflow["jobs"]["docker-build"]
+    assert build["runs-on"] == "kalana-ci"
+    assert {entry["platform"] for entry in build["strategy"]["matrix"]["arch"]} == {
+        "linux/amd64",
+        "linux/arm64",
+    }
+    assert any(
+        step.get("uses", "").startswith("docker/setup-qemu-action@") for step in build["steps"]
     )
-    assert "runs_on: ubuntu-24.04-arm, platform: linux/arm64" in content, (
-        "arm64 arch matrix entry must bind ubuntu-24.04-arm (native aarch64)"
+    smoke = next(
+        step for step in build["steps"] if step.get("name", "").startswith("Smoke-test image")
     )
-
-    # Per-arch builds must push by digest only — tags belong on the
-    # multi-arch manifest, applied later by docker-manifest.
-    assert "push-by-digest=true,name-canonical=true,push=true" in content, (
-        "per-arch builds must push by digest only; tags applied at manifest merge step"
-    )
-
-    # The QEMU action must NOT be invoked anywhere — its presence would
-    # mean someone re-introduced an emulated build path.
-    non_comment = "\n".join(
-        line for line in content.splitlines() if not line.lstrip().startswith("#")
-    )
-    assert "docker/setup-qemu-action" not in non_comment, (
-        "docker.yml must not invoke `docker/setup-qemu-action` — native "
-        "arm64 runners replaced QEMU. A new reference here means someone "
-        "re-emulated arm64 on an x64 runner."
-    )
-
-    # Manifest merge job must exist and depend on docker-build.
-    assert "docker-manifest:" in content
-    assert "needs: docker-build" in content
+    assert smoke["env"]["PLATFORM"] == "${{ matrix.arch.platform }}"
+    assert '--platform "$PLATFORM"' in smoke["run"]
+    assert "push-by-digest=true,name-canonical=true,push=true" in content
+    assert workflow["jobs"]["docker-manifest"]["needs"] == "docker-build"
     assert "docker buildx imagetools create" in content
 
 

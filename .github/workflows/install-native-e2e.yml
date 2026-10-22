@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   install-native:
-    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'kalana-ci' || matrix.os == 'macos-latest' && 'kalana-macos-ci' || matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'kalana-ci' || matrix.os == 'macos-latest' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'kalana-macos-ci') || matrix.os }}
     timeout-minutes: 25
     strategy:
       fail-fast: false

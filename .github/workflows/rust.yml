@@ -149,7 +149,7 @@ jobs:
     name: simulator e2e (${{ matrix.os }})
     needs: rust-changes
     if: needs.rust-changes.outputs.rust == 'true'
-    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'kalana-ci' || matrix.os == 'macos-latest' && 'kalana-macos-ci' || matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'kalana-ci' || matrix.os == 'macos-latest' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'kalana-macos-ci') || matrix.os }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -182,7 +182,7 @@ jobs:
     name: wheels (${{ matrix.target }})
     needs: rust-changes
     if: needs.rust-changes.outputs.rust == 'true'
-    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'kalana-ci' || matrix.os == 'macos-14' && 'kalana-macos-ci' || matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'kalana-ci' || matrix.os == 'macos-14' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'kalana-macos-ci') || matrix.os }}
     timeout-minutes: 45
     strategy:
       fail-fast: false

@@ -195,7 +195,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'kalana-ci' || matrix.os == 'macos-latest' && 'kalana-macos-ci' || matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'kalana-ci' || matrix.os == 'macos-latest' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'kalana-macos-ci') || matrix.os }}
     timeout-minutes: 45
     steps:
       - name: Limit self-hosted compilation parallelism
@@ -686,7 +686,7 @@ jobs:
   macos-native-wrapper:
     needs: changes
     if: needs.changes.outputs.native == 'true'
-    runs-on: [self-hosted, macOS, ARM64, kalana-macos-ci]
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'kalana-macos-ci' }}
     timeout-minutes: 20
     steps:
       - name: Prepare a private home for the Mac job

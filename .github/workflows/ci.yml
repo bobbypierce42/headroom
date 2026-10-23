@@ -2,6 +2,7 @@ name: Mac runner repository coverage verification
 on:
   push:
     branches: [ci/macos-coverage-verification-20261022]
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

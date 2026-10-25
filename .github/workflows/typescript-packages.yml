@@ -1,0 +1,72 @@
+name: TypeScript packages
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sdk/typescript/**'
+      - 'plugins/openclaw/**'
+      - '.github/workflows/typescript-packages.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'sdk/typescript/**'
+      - 'plugins/openclaw/**'
+      - '.github/workflows/typescript-packages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: typescript-packages-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sdk-and-openclaw:
+    name: SDK and OpenClaw typecheck, test, and build
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: kalana-ci
+    timeout-minutes: 10
+    env:
+      CI: 'true'
+      HEADROOM_INTEGRATION: '0'
+      HEADROOM_BEACON: 'off'
+      HEADROOM_TELEMETRY: 'off'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.19.0'
+          cache: npm
+          cache-dependency-path: |
+            sdk/typescript/package-lock.json
+            plugins/openclaw/package-lock.json
+      # Keep these packages serial so their compiler and test processes do not
+      # compete on the shared runner. npm ci preserves each existing lockfile.
+      - name: Install locked SDK dependencies
+        working-directory: sdk/typescript
+        run: npm ci --ignore-scripts
+      - name: Type-check the SDK
+        working-directory: sdk/typescript
+        run: npm run typecheck
+      - name: Test the SDK without live providers
+        working-directory: sdk/typescript
+        run: npm test -- --maxWorkers=1 --no-file-parallelism --maxConcurrency=1
+      - name: Build the SDK package
+        working-directory: sdk/typescript
+        run: npm run build
+      - name: Install locked OpenClaw dependencies
+        working-directory: plugins/openclaw
+        run: npm ci --ignore-scripts
+      - name: Type-check OpenClaw
+        working-directory: plugins/openclaw
+        run: npm run typecheck
+      - name: Test OpenClaw without live providers
+        working-directory: plugins/openclaw
+        run: npm test -- --maxWorkers=1 --no-file-parallelism --maxConcurrency=1
+      - name: Build the OpenClaw package
+        working-directory: plugins/openclaw
+        run: npm run build

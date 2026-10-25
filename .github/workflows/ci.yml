@@ -141,8 +141,8 @@ jobs:
         if: runner.environment == 'self-hosted'
         shell: bash
         run: |-
-          echo "CARGO_BUILD_JOBS=2" >> "$GITHUB_ENV"
-          echo "RUST_TEST_THREADS=2" >> "$GITHUB_ENV"
+          echo "CARGO_BUILD_JOBS=${{ runner.os == 'Linux' && '1' || '2' }}" >> "$GITHUB_ENV"
+          echo "RUST_TEST_THREADS=${{ runner.os == 'Linux' && '1' || '2' }}" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
@@ -206,8 +206,8 @@ jobs:
         if: runner.environment == 'self-hosted'
         shell: bash
         run: |-
-          echo "CARGO_BUILD_JOBS=2" >> "$GITHUB_ENV"
-          echo "RUST_TEST_THREADS=2" >> "$GITHUB_ENV"
+          echo "CARGO_BUILD_JOBS=${{ runner.os == 'Linux' && '1' || '2' }}" >> "$GITHUB_ENV"
+          echo "RUST_TEST_THREADS=${{ runner.os == 'Linux' && '1' || '2' }}" >> "$GITHUB_ENV"
       - name: Prepare a private home for the Mac job
         if: runner.os == 'macOS' && runner.environment == 'self-hosted'
         shell: bash
@@ -569,8 +569,8 @@ jobs:
         if: runner.environment == 'self-hosted'
         shell: bash
         run: |-
-          echo "CARGO_BUILD_JOBS=2" >> "$GITHUB_ENV"
-          echo "RUST_TEST_THREADS=2" >> "$GITHUB_ENV"
+          echo "CARGO_BUILD_JOBS=${{ runner.os == 'Linux' && '1' || '2' }}" >> "$GITHUB_ENV"
+          echo "RUST_TEST_THREADS=${{ runner.os == 'Linux' && '1' || '2' }}" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
@@ -758,6 +758,7 @@ jobs:
     runs-on: kalana-ci
     timeout-minutes: 25
     strategy:
+      max-parallel: 1
       fail-fast: false
       matrix:
         python-version: ['3.10', '3.11', '3.13', '3.14']

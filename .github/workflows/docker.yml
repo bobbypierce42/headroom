@@ -51,6 +51,7 @@ jobs:
     runs-on: kalana-ci
     timeout-minutes: 120
     strategy:
+      max-parallel: 1
       fail-fast: false
       matrix:
         variant:
@@ -104,6 +105,12 @@ jobs:
           platforms: arm64,amd64
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
+        with:
+          # Limit concurrent BuildKit operations inside this job's builder.
+          # This does not set Cargo's worker count inside a Dockerfile RUN.
+          buildkitd-config-inline: |
+            [worker.oci]
+              max-parallelism = 1
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -143,6 +150,7 @@ jobs:
           # per (variant, arch) so the two arches don't fight over the
           # same cache key.
           set: |
+            ${{ matrix.variant.bake_target }}.args.CI_CARGO_BUILD_JOBS=1
             *.platform=${{ matrix.arch.platform }}
             *.output=type=image,name=${{ env.REGISTRY }}/${{ steps.image-name.outputs.image_name }},push-by-digest=true,name-canonical=true,push=true
             *.cache-from=type=gha,scope=${{ matrix.variant.name || 'root' }}-${{ matrix.arch.name }}

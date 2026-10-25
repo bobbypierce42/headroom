@@ -30,7 +30,8 @@ jobs:
   # installed in production), so this gate fails only on actionable findings.
   dependency-audit:
     name: Dependency audit (pip-audit)
-    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: kalana-ci
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -59,7 +60,8 @@ jobs:
   # Lockfile audits do not install packages or execute their lifecycle scripts.
   npm-audit:
     name: npm audit (${{ matrix.directory }})
-    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: kalana-ci
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -82,7 +84,8 @@ jobs:
   # ---- SAST: CodeQL static analysis ------------------------------------
   codeql:
     name: CodeQL (${{ matrix.language }})
-    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: kalana-ci
     timeout-minutes: 30
     permissions:
       contents: read
@@ -114,7 +117,8 @@ jobs:
   # live in .gitleaks.toml at the repo root (auto-loaded).
   secret-scan:
     name: Secret scan (gitleaks)
-    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: kalana-ci
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -123,13 +127,21 @@ jobs:
 
       - name: Install gitleaks
         run: |
+          set -euo pipefail
           version=8.18.4
-          curl -sSfL \
-            "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz" \
-            -o /tmp/gitleaks.tar.gz
-          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
-          sudo install /tmp/gitleaks /usr/local/bin/gitleaks
-          gitleaks version
+          case "$(uname -m)" in
+            x86_64) leaks_arch=x64; leaks_sha=ba6dbb656933921c775ee5a2d1c13a91046e7952e9d919f9bac4cec61d628e7d ;;
+            aarch64|arm64) leaks_arch=arm64; leaks_sha=bf5f7f466ebfade1296c8bd32cf7d3f592c2aa78836aa9980ffbe2cadca7a861 ;;
+            *) echo "::error::Unsupported gitleaks architecture"; exit 1 ;;
+          esac
+          leaks_dir="$(mktemp -d "$RUNNER_TEMP/gitleaks.XXXXXX")"
+          curl -fsSL --retry 3 \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_${leaks_arch}.tar.gz" \
+            -o "$leaks_dir/archive.tar.gz"
+          echo "$leaks_sha  $leaks_dir/archive.tar.gz" | sha256sum -c -
+          tar -xzf "$leaks_dir/archive.tar.gz" -C "$leaks_dir" gitleaks
+          "$leaks_dir/gitleaks" version
+          echo "$leaks_dir" >> "$GITHUB_PATH"
 
       - name: Scan for secrets
         env:

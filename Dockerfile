@@ -51,10 +51,15 @@ COPY headroom/ headroom/
 # `headroom proxy --backend`, including Bedrock temporary/SSO credentials.
 # Those credentials require botocore (GH #1551), supplied by [bedrock].
 ARG HEADROOM_EXTRAS=proxy,code,bedrock
+# Optional CI budget; an omitted argument preserves Cargo's normal defaults.
+ARG CI_CARGO_BUILD_JOBS
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/build/target \
+    if [ -n "${CI_CARGO_BUILD_JOBS:-}" ]; then \
+      export CARGO_BUILD_JOBS="$CI_CARGO_BUILD_JOBS"; \
+    fi && \
     uv pip install --system ".[${HEADROOM_EXTRAS}]"
 
 RUN --mount=type=bind,source=.,target=/context,readonly \
@@ -153,6 +158,9 @@ RUN cd /tmp && python -c "from headroom._core import DiffCompressor, SmartCrushe
 # path so the COPY in the runtime stages can pick it up.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/build/target \
+    if [ -n "${CI_CARGO_BUILD_JOBS:-}" ]; then \
+      export CARGO_BUILD_JOBS="$CI_CARGO_BUILD_JOBS"; \
+    fi && \
     cargo build --release --locked --bin headroom-proxy && \
     cp target/release/headroom-proxy /usr/local/bin/headroom-proxy
 

@@ -39,7 +39,8 @@ env:
 
 jobs:
   changes:
-    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: kalana-ci
     timeout-minutes: 5
     outputs:
       code: ${{ steps.filter.outputs.code }}
@@ -100,10 +101,13 @@ jobs:
             workflows:
               - '.github/workflows/**'
 
+    permissions:
+      contents: read
+      pull-requests: read
   lint:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.outputs.code == 'true') }}
+    runs-on: kalana-ci
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -129,10 +133,16 @@ jobs:
 
   build-wheel:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.outputs.code == 'true') }}
+    runs-on: kalana-ci
     timeout-minutes: 30
     steps:
+      - name: Limit self-hosted compilation parallelism
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |-
+          echo "CARGO_BUILD_JOBS=${{ runner.os == 'Linux' && '1' || '2' }}" >> "$GITHUB_ENV"
+          echo "RUST_TEST_THREADS=${{ runner.os == 'Linux' && '1' || '2' }}" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
@@ -184,16 +194,44 @@ jobs:
     # Python from prebuilt wheels only, so a dependency with no 3.14 wheel fails
     # here instead of starting a C or Rust build on a user's machine.
     needs: [changes, build-wheel]
-    if: needs.changes.outputs.packaging == 'true'
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.outputs.packaging == 'true') }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ startsWith(matrix.os, 'windows') && matrix.os || startsWith(matrix.os, 'macos') && fromJSON('["self-hosted","kalana-macos-ci","macOS"]') || fromJSON('["kalana-ci"]') }}
     timeout-minutes: 45
     steps:
+      - name: Limit self-hosted compilation parallelism
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |-
+          echo "CARGO_BUILD_JOBS=${{ runner.os == 'Linux' && '1' || '2' }}" >> "$GITHUB_ENV"
+          echo "RUST_TEST_THREADS=${{ runner.os == 'Linux' && '1' || '2' }}" >> "$GITHUB_ENV"
+      - name: Prepare a private home for the Mac job
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        shell: bash
+        run: |-
+          mkdir -p "$RUNNER_TEMP/ci-home"
+          echo "HOME=$RUNNER_TEMP/ci-home" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
+      - name: Set up job-local Python on the Mac runner
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          version: 0.13.0
+          python-version: '3.14'
+          activate-environment: true
+          venv-path: ${{ runner.temp }}/ci-python
+          no-project: true
+          enable-cache: true
+          cache-python: true
+      - name: Provide pip in the Mac Python environment
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        shell: bash
+        run: uv pip install --python "$VIRTUAL_ENV/bin/python" pip
       - uses: actions/setup-python@v7
+        if: runner.os != 'macOS' || runner.environment != 'self-hosted'
         with:
           python-version: "3.14"
       - name: Download Linux wheel
@@ -254,8 +292,8 @@ jobs:
 
   prefetch-model:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.outputs.code == 'true') }}
+    runs-on: kalana-ci
     timeout-minutes: 20
     steps:
       - uses: actions/setup-python@v7
@@ -282,8 +320,8 @@ jobs:
 
   test:
     needs: [changes, build-wheel, prefetch-model]
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.outputs.code == 'true') }}
+    runs-on: kalana-ci
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -361,10 +399,17 @@ jobs:
           pytest tests scripts/tests \
             --splits 4 --group ${{ matrix.shard }} \
             --cov=headroom --cov-branch \
+            --junitxml=test-results/shard-${{ matrix.shard }}.xml \
             --cov-report=xml:coverage-${{ matrix.shard }}.xml \
             --cov-report= \
             --tb=short -q
 
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: python-shard-${{ matrix.shard }}
+          path: test-results/*.xml
       - name: Upload coverage shard ${{ matrix.shard }} to Codecov
         uses: codecov/codecov-action@v5
         with:
@@ -381,8 +426,8 @@ jobs:
 
   test-extras:
     needs: [changes, build-wheel]
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.outputs.code == 'true') }}
+    runs-on: kalana-ci
     timeout-minutes: 30
     env:
       FASTEMBED_CACHE_PATH: ${{ github.workspace }}/.fastembed-cache
@@ -436,8 +481,8 @@ jobs:
 
   test-agno:
     needs: [changes, build-wheel]
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.outputs.code == 'true') }}
+    runs-on: kalana-ci
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -462,8 +507,8 @@ jobs:
 
   test-dashboard-ui:
     needs: [changes, build-wheel]
-    if: needs.changes.outputs.dashboard == 'true'
-    runs-on: ubuntu-latest
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.outputs.dashboard == 'true') }}
+    runs-on: kalana-ci
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -503,8 +548,8 @@ jobs:
           retention-days: 7
 
   commitlint:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name == 'pull_request') }}
+    runs-on: kalana-ci
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
@@ -516,10 +561,16 @@ jobs:
 
   build:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.outputs.code == 'true') }}
+    runs-on: kalana-ci
     timeout-minutes: 30
     steps:
+      - name: Limit self-hosted compilation parallelism
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |-
+          echo "CARGO_BUILD_JOBS=${{ runner.os == 'Linux' && '1' || '2' }}" >> "$GITHUB_ENV"
+          echo "RUST_TEST_THREADS=${{ runner.os == 'Linux' && '1' || '2' }}" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
@@ -551,8 +602,8 @@ jobs:
 
   workflow-validation:
     needs: changes
-    if: needs.changes.outputs.workflows == 'true'
-    runs-on: ubuntu-latest
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.outputs.workflows == 'true') }}
+    runs-on: kalana-ci
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -560,32 +611,47 @@ jobs:
         id: tools-cache
         uses: actions/cache@v6
         with:
-          path: |
-            /usr/local/bin/actionlint
-            /usr/local/bin/act
+          path: |-
+            ${{ runner.temp }}/ci-workflow-tools
           # Key off the workflow file itself: when someone updates the
           # download URLs to a newer tool version, the hash changes and
           # the cache busts automatically.
-          key: ${{ runner.os }}-ci-tools-${{ hashFiles('.github/workflows/ci.yml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-ci-tools-${{ hashFiles('.github/workflows/ci.yml') }}
 
       - name: Install actionlint
         if: steps.tools-cache.outputs.cache-hit != 'true'
         run: |
-          curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash | bash
-          sudo mv ./actionlint /usr/local/bin/actionlint
+          mkdir -p "$RUNNER_TEMP/ci-workflow-tools"
+          case "$(uname -m)" in
+            x86_64) tool_arch=amd64; tool_sha=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8 ;;
+            aarch64|arm64) tool_arch=arm64; tool_sha=325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6 ;;
+            *) echo "::error::Unsupported workflow-tools architecture"; exit 1 ;;
+          esac
+          curl -fsSL --retry 3 "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_${tool_arch}.tar.gz" -o "$RUNNER_TEMP/actionlint.tar.gz"
+          echo "$tool_sha  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP/ci-workflow-tools" actionlint
 
       - name: Install act
         if: steps.tools-cache.outputs.cache-hit != 'true'
         run: |
-          curl -fsSL https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash
-          sudo install ./bin/act /usr/local/bin/act
+          case "$(uname -m)" in
+            x86_64) tool_arch=x86_64; tool_sha=0191d6f1f3b716b5c55820032605d05fc3c1cdbf581ebeff655019e5dd1524c0 ;;
+            aarch64|arm64) tool_arch=arm64; tool_sha=daa8679ba9615a74d2d0cec321dc593f21948a2a11bb65862b063d8b930f4bcb ;;
+            *) echo "::error::Unsupported workflow-tools architecture"; exit 1 ;;
+          esac
+          curl -fsSL --retry 3 "https://github.com/nektos/act/releases/download/v0.2.89/act_Linux_${tool_arch}.tar.gz" -o "$RUNNER_TEMP/act.tar.gz"
+          echo "$tool_sha  $RUNNER_TEMP/act.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/act.tar.gz" -C "$RUNNER_TEMP/ci-workflow-tools" act
+      - name: Expose job-local workflow tools
+        run: |-
+          echo "$RUNNER_TEMP/ci-workflow-tools" >> "$GITHUB_PATH"
       - name: Validate workflow files
         run: bash scripts/validate-workflows.sh
 
   docker-native-e2e:
     needs: changes
-    if: needs.changes.outputs.native == 'true'
-    runs-on: ubuntu-latest
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.outputs.native == 'true') }}
+    runs-on: kalana-ci
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
@@ -645,17 +711,39 @@ jobs:
 
   macos-native-wrapper:
     needs: changes
-    if: needs.changes.outputs.native == 'true'
-    runs-on: macos-latest
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.changes.outputs.native == 'true') }}
+    runs-on: [self-hosted, kalana-macos-ci, macOS]
     timeout-minutes: 20
     steps:
+      - name: Prepare a private home for the Mac job
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        shell: bash
+        run: |-
+          mkdir -p "$RUNNER_TEMP/ci-home"
+          echo "HOME=$RUNNER_TEMP/ci-home" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
+      - name: Set up job-local Python on the Mac runner
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          version: 0.13.0
+          python-version: '3.11'
+          activate-environment: true
+          venv-path: ${{ runner.temp }}/ci-python
+          no-project: true
+          enable-cache: true
+          cache-python: true
+      - name: Provide pip in the Mac Python environment
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        shell: bash
+        run: uv pip install --python "$VIRTUAL_ENV/bin/python" pip
       - uses: actions/setup-python@v7
+        if: runner.os != 'macOS' || runner.environment != 'self-hosted'
         with:
           python-version: "3.11"
       - name: Install bash and test dependencies
         run: |
-          brew install bash
+          brew list --versions bash >/dev/null || brew install bash
           python -m pip install --upgrade pip
           python -m pip install --retries 10 --timeout 60 pytest 'opentelemetry-api>=1.24.0'
       - name: Run native installer wrapper tests
@@ -663,3 +751,44 @@ jobs:
           BASH_PREFIX="$(brew --prefix bash)"
           export PATH="$BASH_PREFIX/bin:$PATH"
           pytest tests/test_install/test_native_installers.py -q
+  python-compatibility:
+    name: Python ${{ matrix.python-version }} compatibility
+    needs: [changes, build-wheel]
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.changes.outputs.code == 'true' }}
+    runs-on: kalana-ci
+    timeout-minutes: 25
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.13', '3.14']
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HEADROOM_BEACON: 'off'
+      HEADROOM_TELEMETRY: 'off'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: headroom-wheel
+          path: dist
+      - name: Install shipped wheel and proxy contracts
+        run: |
+          python -m pip install --upgrade pip
+          WHEEL="$(ls dist/*.whl)"
+          python -m pip install "${WHEEL}[proxy]" pytest pytest-asyncio
+          SITE="$(python -c 'import sysconfig; print(sysconfig.get_path("platlib"))')"
+          cp "${SITE}/headroom/"_core*.so headroom/
+          python -c "from headroom._core import DiffCompressor; print('native extension OK')"
+      - name: Run supported-version contract tests
+        run: python -m pytest tests/test_config.py tests/test_models.py tests/test_tokenizer.py tests/test_toin.py --junitxml=test-results/compatibility.xml -q
+      - name: Upload compatibility results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: python-contracts-${{ matrix.python-version }}
+          path: test-results/*.xml

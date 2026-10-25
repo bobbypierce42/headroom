@@ -7,16 +7,28 @@ name: Publish to PyPI (manual fallback)
 # x86_64 wheel + sdist. For full cross-platform release, use release.yml.
 on:
   workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
+    timeout-minutes: 30
     environment: pypi
     permissions:
       id-token: write  # For trusted publishing
       contents: write  # For uploading release assets
 
     steps:
+      - name: Limit self-hosted compilation parallelism
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |-
+          echo "CARGO_BUILD_JOBS=${{ runner.os == 'Linux' && '1' || '2' }}" >> "$GITHUB_ENV"
+          echo "RUST_TEST_THREADS=${{ runner.os == 'Linux' && '1' || '2' }}" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
 
       - name: Set up Python

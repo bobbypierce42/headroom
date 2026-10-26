@@ -23,7 +23,7 @@ jobs:
   no-manual-changelog:
     # release-please's release PR is the sole author of CHANGELOG.md.
     if: ${{ !startsWith(github.head_ref, 'release-please--') }}
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     steps:
       - name: Reject manual CHANGELOG.md edits
         env:

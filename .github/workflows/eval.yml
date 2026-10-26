@@ -14,7 +14,7 @@ jobs:
   # Fast smoke test on PRs touching compression code (~$0.05, ~2 min)
   smoke-test:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -86,7 +86,7 @@ jobs:
   # Full Tier 1 suite, weekly or manual (~$3-5, ~30-45 min)
   weekly-suite:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7

@@ -22,7 +22,7 @@ concurrency:
 jobs:
   template:
     if: github.event_name == 'pull_request_target'
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -145,7 +145,7 @@ jobs:
           echo "PR template validation found missing fields. The governance comment and labels identify the required author updates."
 
   label:
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     timeout-minutes: 10
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

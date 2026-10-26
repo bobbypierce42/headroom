@@ -76,7 +76,7 @@ concurrency:
 
 jobs:
   detect-version:
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     permissions:
       contents: read
     outputs:
@@ -125,7 +125,7 @@ jobs:
   # built per-platform in `build-wheels` below. publish-pypi merges them.
   build:
     needs: [detect-version]
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     permissions:
       contents: read
     steps:
@@ -262,7 +262,7 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             manylinux: ""
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ startsWith(matrix.os, 'windows') && matrix.os || matrix.os == 'macos-15-intel' && matrix.os || startsWith(matrix.os, 'macos') && fromJSON('["self-hosted","kalana-macos-ci"]') || matrix.os == 'ubuntu-24.04-arm' && matrix.os || 'kalana-ci' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -405,7 +405,7 @@ jobs:
   # into the canonical `dist/` directory for downstream publishing jobs.
   collect-dist:
     needs: [build, build-wheels]
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     permissions:
       contents: read
     steps:
@@ -466,7 +466,7 @@ jobs:
   smoke-import-wheels:
     needs: [build-wheels]
     if: github.event.inputs.dry_run != 'true'
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ startsWith(matrix.runner, 'windows') && matrix.runner || matrix.runner == 'macos-15-intel' && matrix.runner || startsWith(matrix.runner, 'macos') && fromJSON('["self-hosted","kalana-macos-ci"]') || matrix.runner == 'ubuntu-24.04-arm' && matrix.runner || 'kalana-ci' }}
     permissions:
       contents: read
     strategy:
@@ -767,7 +767,7 @@ jobs:
     # dry_run, vars-level skip).
     if: github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true' && vars.PYPI_SKIP != 'true'
     environment: pypi  # NOTE: environment name must be a literal; update here if the GitHub environment name changes
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     permissions:
       id-token: write  # Required for OIDC trusted publishing
     steps:
@@ -794,7 +794,7 @@ jobs:
   publish-npm:
     needs: [detect-version, build]
     if: github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true' && vars.NPM_SKIP != 'true'
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     # Publishes to npmjs.org via NPM_TOKEN secret; no GITHUB_TOKEN
     # write permissions needed.
     permissions:
@@ -881,7 +881,7 @@ jobs:
   publish-github-packages:
     needs: [detect-version, build]
     if: github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true' && vars.GH_PACKAGES_SKIP != 'true'
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     permissions:
       contents: read
       packages: write
@@ -1014,7 +1014,7 @@ jobs:
         needs.smoke-import-wheels.result == 'success' &&
         (vars.PYPI_SKIP == 'true' || needs.publish-pypi.result == 'success')
       }}
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     permissions:
       contents: write
     steps:

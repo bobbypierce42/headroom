@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   verify-pins:
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

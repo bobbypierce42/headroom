@@ -40,7 +40,7 @@ concurrency:
 
 jobs:
   release-please:
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     steps:
       # Prefer a short-lived, repo-scoped GitHub App installation token. A
       # personal PAT carries the maintainer's whole account — with a classic

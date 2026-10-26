@@ -36,7 +36,7 @@ jobs:
   # `changes` check.
   rust-changes:
     name: rust-changes
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     timeout-minutes: 5
     outputs:
       rust: ${{ steps.decide.outputs.rust }}
@@ -68,7 +68,7 @@ jobs:
     name: test (ubuntu)
     needs: rust-changes
     if: needs.rust-changes.outputs.rust == 'true'
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -149,7 +149,7 @@ jobs:
     name: simulator e2e (${{ matrix.os }})
     needs: rust-changes
     if: needs.rust-changes.outputs.rust == 'true'
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ startsWith(matrix.os, 'windows') && matrix.os || matrix.os == 'macos-15-intel' && matrix.os || startsWith(matrix.os, 'macos') && fromJSON('["self-hosted","kalana-macos-ci"]') || 'kalana-ci' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -170,7 +170,7 @@ jobs:
     name: wheels (${{ matrix.target }})
     needs: rust-changes
     if: needs.rust-changes.outputs.rust == 'true'
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ startsWith(matrix.os, 'windows') && matrix.os || matrix.os == 'macos-15-intel' && matrix.os || startsWith(matrix.os, 'macos') && fromJSON('["self-hosted","kalana-macos-ci"]') || 'kalana-ci' }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -212,7 +212,7 @@ jobs:
     name: audit
     needs: rust-changes
     if: needs.rust-changes.outputs.rust == 'true'
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -249,7 +249,7 @@ jobs:
     name: parity
     needs: rust-changes
     if: needs.rust-changes.outputs.rust == 'true'
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable

@@ -41,7 +41,7 @@ permissions:
 jobs:
   # ─── Per-arch fan-out ──────────────────────────────────────────────────────
   # Build each variant on its native architecture in parallel:
-  #   linux/amd64 → ubuntu-24.04 (native x86_64)
+  #   linux/amd64 → kalana-ci (native x86_64 Linux pool)
   #   linux/arm64 → ubuntu-24.04-arm (native aarch64, GA Jan 2025)
   #
   # Pre-#377 we ran a single matrix job per variant on `ubuntu-latest` and
@@ -68,7 +68,7 @@ jobs:
           - { name: code-slim, bake_target: runtime-code-slim }
           - { name: code-slim-nonroot, bake_target: runtime-code-slim-nonroot }
         arch:
-          - { name: amd64, runs_on: ubuntu-24.04, platform: linux/amd64 }
+          - { name: amd64, runs_on: kalana-ci, platform: linux/amd64 }
           - { name: arm64, runs_on: ubuntu-24.04-arm, platform: linux/arm64 }
 
     steps:
@@ -221,7 +221,7 @@ jobs:
   docker-manifest:
     needs: docker-build
     if: ${{ always() }}
-    runs-on: ubuntu-24.04
+    runs-on: kalana-ci
     timeout-minutes: 20
     strategy:
       fail-fast: false

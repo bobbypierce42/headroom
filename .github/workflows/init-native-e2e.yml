@@ -34,7 +34,7 @@ on:
 
 jobs:
   init-native:
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ startsWith(matrix.os, 'windows') && matrix.os || startsWith(matrix.os, 'macos') && fromJSON('["self-hosted","kalana-macos-ci"]') || 'kalana-ci' }}
     timeout-minutes: 25
     strategy:
       fail-fast: false

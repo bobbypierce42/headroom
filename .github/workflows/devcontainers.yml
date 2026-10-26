@@ -19,7 +19,7 @@ on:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     strategy:
       fail-fast: false
       matrix:
@@ -77,7 +77,7 @@ jobs:
           fi
 
   validate-worktree:
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
 
     steps:
       - uses: actions/checkout@v7

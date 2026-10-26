@@ -15,7 +15,7 @@ env:
 
 jobs:
   offline:
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -75,7 +75,7 @@ jobs:
         run: docker run --rm -e CLAUDE_COMMAND="claude --version" headroom-network-diff-claude-direct:latest
 
   live-anthropic:
-    runs-on: ubuntu-latest
+    runs-on: kalana-ci
     timeout-minutes: 90
     needs: offline
     env:
